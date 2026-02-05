@@ -1,0 +1,14 @@
+# Yocto/BitBake
+*.pyc
+__pycache__/
+
+# Editor
+*~
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
