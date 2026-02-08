@@ -1,0 +1,10 @@
+# Force GLES2 for Vivante GPU compatibility
+export COGL_DRIVER=gles2
+export CLUTTER_DRIVER=gles2
+export GDK_GL=gles
+export QT_QPA_PLATFORM=wayland
+export QT_QUICK_BACKEND=software
+
+# SDL2 GLES/EGL settings for Vivante (needed for gzdoom, etc.)
+export SDL_OPENGL_ES_DRIVER=1
+export SDL_VIDEO_EGL_DRIVER=libEGL.so.1
