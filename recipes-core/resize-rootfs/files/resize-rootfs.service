@@ -1,0 +1,14 @@
+[Unit]
+Description=Expand rootfs partition to fill SD card
+DefaultDependencies=no
+Before=local-fs-pre.target
+After=systemd-udevd.service
+ConditionPathExists=/dev/mmcblk1p2
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/resize-rootfs.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=local-fs-pre.target
