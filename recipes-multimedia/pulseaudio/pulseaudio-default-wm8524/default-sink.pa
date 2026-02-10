@@ -1,0 +1,8 @@
+# Set WM8524 (headphone jack) as default audio output
+set-default-sink alsa_output.platform-sound-wm8524.stereo-fallback
+
+# Disable SPDIF output (not connected on typical setups)
+set-card-profile alsa_card.platform-sound-spdif off
+
+# Disable Bluetooth SCO (phone call audio) — A2DP handles music playback
+set-card-profile alsa_card.platform-sound-bt-sco off

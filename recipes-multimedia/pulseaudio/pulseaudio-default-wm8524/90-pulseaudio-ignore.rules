@@ -1,0 +1,5 @@
+# Ignore unwanted audio devices in PulseAudio
+# Only WM8524 headphone jack and Bluetooth A2DP should appear
+SUBSYSTEM=="sound", ATTRS{id}=="imxspdif", ENV{PULSE_IGNORE}="1"
+SUBSYSTEM=="sound", ATTRS{id}=="micfilaudio", ENV{PULSE_IGNORE}="1"
+SUBSYSTEM=="sound", ATTRS{id}=="btscoaudio", ENV{PULSE_IGNORE}="1"
