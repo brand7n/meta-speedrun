@@ -1,0 +1,65 @@
+From: Enable V4L2 video encoder on non-ChromeOS Linux
+Subject: Remove IS_CHROMEOS guard from V4L2 encoder factory and BUILD.gn
+
+Chromium gates the V4L2 video encode accelerator behind IS_CHROMEOS in
+two places:
+1. gpu_video_encode_accelerator_factory.cc — CreateV4L2VEA() returns
+   nullptr on non-ChromeOS
+2. media/gpu/v4l2/BUILD.gn — encoder source files only compiled for
+   is_chromeos
+
+This prevents the encoder from being instantiated and its supported
+codec profiles from appearing in chrome://gpu on embedded Linux systems
+with V4L2 encode hardware (e.g. Hantro H1 on NXP i.MX8MM).
+
+Remove both IS_CHROMEOS conditionals so the V4L2 encoder is built and
+created on all USE_V4L2_CODEC platforms.
+
+Tested on: NXP i.MX8MM EVK with Chromium 129.0.6668.100
+(Hantro H1 V4L2 encoder)
+
+Upstream-Status: Inappropriate [embedded platform enablement]
+
+---
+
+--- a/media/gpu/gpu_video_encode_accelerator_factory.cc
++++ b/media/gpu/gpu_video_encode_accelerator_factory.cc
+@@ -47,14 +47,8 @@
+ namespace {
+ #if BUILDFLAG(USE_V4L2_CODEC)
+ std::unique_ptr<VideoEncodeAccelerator> CreateV4L2VEA() {
+-#if BUILDFLAG(IS_CHROMEOS)
+-  // TODO(crbug.com/901264): Encoders use hack for passing offset within
+-  // a DMA-buf, which is not supported upstream.
+   return base::WrapUnique<VideoEncodeAccelerator>(
+       new V4L2VideoEncodeAccelerator(new V4L2Device()));
+-#else
+-  return nullptr;
+-#endif
+ }
+ #elif BUILDFLAG(USE_VAAPI)
+ std::unique_ptr<VideoEncodeAccelerator> CreateVaapiVEA() {
+
+--- a/media/gpu/v4l2/BUILD.gn
++++ b/media/gpu/v4l2/BUILD.gn
+@@ -80,14 +80,15 @@
+       # AV1 delegate depends on header files only in ChromeOS SDK
+       "v4l2_video_decoder_delegate_av1.cc",
+       "v4l2_video_decoder_delegate_av1.h",
+-
+-      # TODO(crbug.com/901264): Encoders use hack for passing offset
+-      # within a DMA-buf, which is not supported upstream.
+-      "v4l2_video_encode_accelerator.cc",
+-      "v4l2_video_encode_accelerator.h",
+     ]
+   }
+
++  # V4L2 encoder — needed on any platform with V4L2 encode hardware
++  sources += [
++    "v4l2_video_encode_accelerator.cc",
++    "v4l2_video_encode_accelerator.h",
++  ]
++
+   libs = [
+     "EGL",
+     "GLESv2",

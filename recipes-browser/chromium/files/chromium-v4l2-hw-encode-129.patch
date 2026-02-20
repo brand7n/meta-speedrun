@@ -1,0 +1,254 @@
+From: Custom V4L2 HW Encode Patches
+Subject: Enable V4L2 hardware encoding for Hantro H1 encoder on i.MX8MM
+
+This patch enables hardware video encoding via the V4L2 Hantro H1 encoder
+on NXP i.MX8MM platforms. Ported from Chromium 117 to 129.0.6668.100.
+
+Changes:
+1. Remove VP9 software encoder from WebRTC to force H264/VP8 HW codec selection
+2. Fix chrome://gpu display status for video encode on Linux (V4L2, not just VAAPI)
+3. Use MMAP for ALL encoder input (both shmem and GpuMemoryBuffer) to avoid
+   DMABUF data_offset bug on non-ChromeOS Linux
+4. Add MMAP buffer handling for both SHMEM and GpuMemoryBuffer frames
+5. Add MMAP case to plane size setup loop (fixes "contiguous mapping too small")
+6. Disable low-resolution software fallback to keep HW encoder active
+7. Fix NV12 GPU memory buffer usage flag for zero-copy capture path
+   (use VEA_READ_CAMERA_AND_CPU_READ_WRITE instead of GPU_READ_CPU_READ_WRITE)
+   Note: IsGpuMemoryBufferNV12Supported force-true is in separate patch
+8. Stride-aware row-by-row copy with dst_stride derived from MMAP buffer size
+   (fixes green bars when source stride != encoder stride, fixes low-res VP8)
+9. Prefer HW encoder formats over SW formats in codec negotiation
+
+Tested on: NXP i.MX8MM EVK with Chromium 129.0.6668.100
+
+Upstream-Status: Inappropriate [i.MX specific]
+
+---
+
+--- a/third_party/webrtc/media/engine/internal_encoder_factory.cc	2026-02-08 07:37:40.852345754 -0500
++++ b/third_party/webrtc/media/engine/internal_encoder_factory.cc	2026-02-08 07:38:18.117543253 -0500
+@@ -23,7 +23,8 @@
+ #include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"  // nogncheck
+ #endif
+ #include "api/video_codecs/video_encoder_factory_template_libvpx_vp8_adapter.h"
+-#include "api/video_codecs/video_encoder_factory_template_libvpx_vp9_adapter.h"
++// VP9 disabled to force HW codec selection (H264/VP8) on V4L2 platforms
++// #include "api/video_codecs/video_encoder_factory_template_libvpx_vp9_adapter.h"
+ #if defined(WEBRTC_USE_H264)
+ #include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"  // nogncheck
+ #endif
+@@ -31,15 +32,17 @@
+ namespace webrtc {
+ namespace {
+ 
++// VP9 software encoder removed to force HW codec selection (H264/VP8)
++// for platforms with V4L2 hardware encoders that don't support VP9
+ using Factory =
+-    VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter,
++    VideoEncoderFactoryTemplate<webrtc::LibvpxVp8EncoderTemplateAdapter
+ #if defined(WEBRTC_USE_H264)
+-                                webrtc::OpenH264EncoderTemplateAdapter,
++                                , webrtc::OpenH264EncoderTemplateAdapter
+ #endif
+ #if defined(RTC_USE_LIBAOM_AV1_ENCODER)
+-                                webrtc::LibaomAv1EncoderTemplateAdapter,
++                                , webrtc::LibaomAv1EncoderTemplateAdapter
+ #endif
+-                                webrtc::LibvpxVp9EncoderTemplateAdapter>;
++                                >;
+ }  // namespace
+ 
+ std::vector<SdpVideoFormat> InternalEncoderFactory::GetSupportedFormats()
+--- a/content/browser/gpu/compositor_util.cc	2026-02-08 07:37:41.208369461 -0500
++++ b/content/browser/gpu/compositor_util.cc	2026-02-08 07:38:51.050787720 -0500
+@@ -166,7 +166,8 @@
+       SafeGetFeatureStatus(
+           gpu_feature_info, gpu::GPU_FEATURE_TYPE_ACCELERATED_VIDEO_ENCODE,
+ #if BUILDFLAG(IS_LINUX)
+-          !base::FeatureList::IsEnabled(media::kVaapiVideoEncodeLinux)),
++          // Patched: Always show enabled for V4L2 encode (not just VAAPI)
++          false),
+ #else
+           command_line.HasSwitch(switches::kDisableAcceleratedVideoEncode)),
+ #endif  // BUILDFLAG(IS_LINUX)
+--- a/media/capture/video/linux/v4l2_gpu_memory_buffer_tracker.cc	2026-02-08 07:37:41.832411040 -0500
++++ b/media/capture/video/linux/v4l2_gpu_memory_buffer_tracker.cc	2026-02-08 07:38:56.834365019 -0500
+@@ -29,7 +29,8 @@
+ gfx::BufferUsage GetBufferUsage(gfx::BufferFormat format) {
+   switch (format) {
+     case gfx::BufferFormat::YUV_420_BIPLANAR:
+-      return gfx::BufferUsage::GPU_READ_CPU_READ_WRITE;
++      // Patched: Use VEA_READ_CAMERA_AND_CPU_READ_WRITE for V4L2 VEA compatibility
++      return gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE;
+     default:
+       // Default usage for YUV camera buffer.
+       return gfx::BufferUsage::SCANOUT_CPU_READ_WRITE;
+--- a/media/capture/video/linux/v4l2_capture_delegate_gpu_helper.cc	2026-02-08 07:37:42.044425171 -0500
++++ b/media/capture/video/linux/v4l2_capture_delegate_gpu_helper.cc	2026-02-08 07:38:59.430180948 -0500
+@@ -135,7 +135,8 @@
+       gmb_support_->CreateGpuMemoryBufferImplFromHandle(
+           capture_buffer.handle_provider->GetGpuMemoryBufferHandle(),
+           dimensions, kTargetBufferFormat,
+-          gfx::BufferUsage::GPU_READ_CPU_READ_WRITE, base::NullCallback());
++          // Patched: Use VEA_READ_CAMERA_AND_CPU_READ_WRITE for V4L2 VEA compatibility
++          gfx::BufferUsage::VEA_READ_CAMERA_AND_CPU_READ_WRITE, base::NullCallback());
+   if (!gpu_memory_buff || !gpu_memory_buff->Map()) {
+     DLOG(ERROR) << "Failed to allocate gpu memory buffer buffer.";
+     client->OnFrameDropped(ConvertReservationFailureToFrameDropReason(
+--- a/third_party/blink/renderer/platform/peerconnection/video_codec_factory.cc	2026-02-08 07:37:42.428450798 -0500
++++ b/third_party/blink/renderer/platform/peerconnection/video_codec_factory.cc	2026-02-08 07:39:09.537496575 -0500
+@@ -131,9 +131,10 @@
+   std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override {
+     std::vector<webrtc::SdpVideoFormat> software_formats =
+         software_encoder_factory_.GetSupportedFormats();
++    // Patched: HW formats first to prefer hardware encoding
+     return hardware_encoder_factory_
+-               ? MergeFormats(software_formats,
+-                              hardware_encoder_factory_->GetSupportedFormats())
++               ? MergeFormats(hardware_encoder_factory_->GetSupportedFormats(),
++                              software_formats)
+                : software_formats;
+   }
+ 
+--- a/third_party/blink/renderer/platform/peerconnection/rtc_video_encoder.cc	2026-02-08 07:37:42.676467349 -0500
++++ b/third_party/blink/renderer/platform/peerconnection/rtc_video_encoder.cc	2026-02-08 07:39:20.284823776 -0500
+@@ -337,15 +337,11 @@
+ 
+ namespace features {
+ 
+-// Enabled-by-default, except for Android where SW encoder for H264 is not
+-// available. The existence of this flag remains only for testing purposes.
++// Patched: Disabled low-resolution SW fallback for V4L2 HW encoder
++// (originally FEATURE_ENABLED_BY_DEFAULT on non-Android)
+ BASE_FEATURE(kForceSoftwareForLowResolutions,
+              "ForceSoftwareForLowResolutions",
+-#if !BUILDFLAG(IS_ANDROID)
+-             base::FEATURE_ENABLED_BY_DEFAULT);
+-#else
+              base::FEATURE_DISABLED_BY_DEFAULT);
+-#endif
+ 
+ // When disabled, SW is forced at <360p. When enabled, SW is forced at <=360p.
+ // Only applicable when `kForceSoftwareForLowResolutions` is enabled.
+--- a/media/gpu/v4l2/v4l2_video_encode_accelerator.cc	2026-02-08 07:37:42.992488438 -0500
++++ b/media/gpu/v4l2/v4l2_video_encode_accelerator.cc	2026-02-08 07:40:33.777567738 -0500
+@@ -584,10 +584,12 @@
+   } else {
+     switch (config.storage_type) {
+       case Config::StorageType::kShmem:
+-        input_memory_type_ = V4L2_MEMORY_USERPTR;
++        // Patched: Use MMAP for Hantro encoder (requires contiguous DMA memory)
++        input_memory_type_ = V4L2_MEMORY_MMAP;
+         break;
+       case Config::StorageType::kGpuMemoryBuffer:
+-        input_memory_type_ = V4L2_MEMORY_DMABUF;
++        // Patched: Force MMAP for Hantro - DMABUF has data_offset bug on non-ChromeOS
++        input_memory_type_ = V4L2_MEMORY_MMAP;
+         break;
+     }
+   }
+@@ -1488,6 +1490,11 @@
+     }
+ 
+     switch (input_buf.Memory()) {
++      case V4L2_MEMORY_MMAP:
++        // Use buffer_size VideoEncodeAccelerator HW requested by S_FMT.
++        input_buf.SetPlaneSize(i, device_input_layout_->planes()[i].size);
++        break;
++
+       case V4L2_MEMORY_USERPTR:
+         // Use buffer_size VideoEncodeAccelerator HW requested by S_FMT.
+         input_buf.SetPlaneSize(i, device_input_layout_->planes()[i].size);
+@@ -1521,6 +1528,92 @@
+                                     frame->timestamp().InMicroseconds());
+ 
+   switch (input_buf.Memory()) {
++    case V4L2_MEMORY_MMAP: {
++      // Patched: Copy frame data to MMAP buffer (encoder allocates contiguous DMA memory)
++      // Handle both SHMEM and GpuMemoryBuffer frames with stride-aware copying
++      const uint8_t* src_data[VideoFrame::kMaxPlanes] = {};
++
++      if (frame->storage_type() == VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
++        // For GpuMemoryBuffer, we need to map it first to get CPU-accessible pointers
++        gfx::GpuMemoryBuffer* gmb = frame->GetGpuMemoryBuffer();
++        if (!gmb) {
++          SetErrorState({EncoderStatus::Codes::kInvalidInputFrame,
++                         "Failed to get GpuMemoryBuffer from frame"});
++          return false;
++        }
++        if (!gmb->Map()) {
++          SetErrorState({EncoderStatus::Codes::kInvalidInputFrame,
++                         "Failed to map GpuMemoryBuffer"});
++          return false;
++        }
++        for (size_t i = 0; i < num_planes; ++i) {
++          src_data[i] = static_cast<const uint8_t*>(gmb->memory(i));
++        }
++      } else {
++        // SHMEM or other mappable storage - use frame->data() directly
++        for (size_t i = 0; i < num_planes; ++i) {
++          src_data[i] = frame->data(i);
++        }
++      }
++
++      // Copy each plane with stride-aware row-by-row copying
++      // Source frames may have padding (e.g., 256 stride for 240-wide chroma)
++      // Destination uses stride derived from actual MMAP buffer size
++      const gfx::Size visible_size = encoder_input_visible_rect_.size();
++      for (size_t i = 0; i < num_planes; ++i) {
++        const int src_stride = frame->stride(i);
++
++        // Calculate row dimensions - chroma planes are half size for I420/NV12
++        int rows = visible_size.height();
++        int row_bytes = visible_size.width();
++        if (i > 0) {
++          rows = (visible_size.height() + 1) / 2;
++          row_bytes = (visible_size.width() + 1) / 2;
++        }
++
++        // Derive dst_stride from actual MMAP buffer size, not device_input_layout_
++        // (device_input_layout_ may incorrectly report Y plane stride for all planes,
++        // but kernel allocates I420 chroma buffers with correct half-stride)
++        const size_t mmap_size = input_buf.GetPlaneSize(i);
++        const int dst_stride = (rows > 0)
++            ? static_cast<int>(mmap_size / rows) : row_bytes;
++
++        // Verify dst_stride is at least row_bytes (sanity check)
++        if (dst_stride < row_bytes) {
++          LOG(ERROR) << "MMAP buffer stride too small: dst_stride=" << dst_stride
++                     << " row_bytes=" << row_bytes << " for plane " << i;
++          if (frame->storage_type() == VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
++            frame->GetGpuMemoryBuffer()->Unmap();
++          }
++          SetErrorState({EncoderStatus::Codes::kEncoderHardwareDriverError,
++                         "MMAP buffer stride too small"});
++          return false;
++        }
++
++        // Row-by-row copy: handle source stride padding, write at dst_stride layout
++        const uint8_t* src_row = src_data[i];
++        uint8_t* dst_row = static_cast<uint8_t*>(input_buf.GetPlaneMapping(i));
++        for (int row = 0; row < rows; ++row) {
++          memcpy(dst_row, src_row, row_bytes);
++          src_row += src_stride;
++          dst_row += dst_stride;
++        }
++      }
++
++      if (frame->storage_type() == VideoFrame::STORAGE_GPU_MEMORY_BUFFER) {
++        frame->GetGpuMemoryBuffer()->Unmap();
++      }
++
++      if (!std::move(input_buf).QueueMMap()) {
++        SetErrorState(
++            {EncoderStatus::Codes::kEncoderHardwareDriverError,
++             base::StrCat(
++                 {"Failed queue a MMAP buffer to input queue, errno=",
++                  base::NumberToString(errno)})});
++        return false;
++      }
++      break;
++    }
+     case V4L2_MEMORY_USERPTR: {
+       if (frame->storage_type() != VideoFrame::STORAGE_SHMEM) {
+         SetErrorState({EncoderStatus::Codes::kInvalidInputFrame,

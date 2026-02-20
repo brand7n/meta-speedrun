@@ -1,0 +1,67 @@
+From: Fix Dawn WebGPU crash on GLES 2.0 drivers
+Subject: Guard glGetStringi in Dawn OpenGL backend for GLES 2.0
+
+Dawn's OpenGL backend (WebGPU) has its own GL function dispatch table,
+separate from Chromium's ui/gl/ dispatch. When enumerating OpenGL ES
+adapters via CollectDawnInfo, it calls LoadOpenGLESProcs which
+conditionally loads GL functions by version. On GLES 2.0 drivers
+(e.g. Vivante GC NanoUltra on i.MX8MM), glGetStringi is not loaded
+because it requires GLES 3.0+. The function pointer stays NULL.
+
+InitializeSupportedGLExtensions() then calls GetStringi unconditionally,
+causing a SIGSEGV (NULL function pointer dereference).
+
+GDB backtrace:
+  #0  0x0000000000000000 in ?? ()
+  #1  dawn::native::opengl::OpenGLFunctionsBase::InitializeSupportedGLExtensions
+      at OpenGLFunctionsBase_autogen.cpp:1215
+  #2  dawn::native::opengl::OpenGLFunctionsBase::LoadOpenGLESProcs
+      (majorVersion=2, minorVersion=0) at OpenGLFunctionsBase_autogen.cpp:392
+
+Fix by checking GetStringi for NULL and falling back to the legacy
+glGetString(GL_EXTENSIONS) which returns a space-separated string.
+This is the standard approach for querying extensions on pre-3.0 GL.
+
+Note: This is a Jinja2 template file. The generated autogen .cpp has
+different line numbers but the same logic.
+
+Tested on: NXP i.MX8MM EVK with Chromium 129.0.6668.100
+(Vivante GC NanoUltra, GLES 2.0 only)
+
+Upstream-Status: Submitted [https://crbug.com]
+
+---
+
+--- a/third_party/dawn/generator/templates/opengl/OpenGLFunctionsBase.cpp
++++ b/third_party/dawn/generator/templates/opengl/OpenGLFunctionsBase.cpp
+@@ -93,6 +93,30 @@
+ #endif
+
+ void OpenGLFunctionsBase::InitializeSupportedGLExtensions() {
++    // glGetStringi requires OpenGL 3.0+ / OpenGL ES 3.0+.
++    // On older contexts (e.g. GLES 2.0) it is not loaded and the function
++    // pointer is NULL.  Fall back to the legacy glGetString(GL_EXTENSIONS)
++    // which returns a space-separated list.
++    if (GetStringi == nullptr) {
++        const char* extensions =
++            reinterpret_cast<const char*>(GetString(GL_EXTENSIONS));
++        if (extensions != nullptr) {
++            const char* p = extensions;
++            while (*p != '\0') {
++                while (*p == ' ')
++                    ++p;
++                if (*p == '\0')
++                    break;
++                const char* end = p;
++                while (*end != ' ' && *end != '\0')
++                    ++end;
++                mSupportedGLExtensionsSet.insert(std::string(p, end));
++                p = end;
++            }
++        }
++        return;
++    }
++
+     int32_t numExtensions;
+     GetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
+

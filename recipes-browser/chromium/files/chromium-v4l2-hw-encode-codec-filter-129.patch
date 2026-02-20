@@ -1,0 +1,105 @@
+From: Custom V4L2 HW Encode - Codec Filter Flags
+Subject: Add command-line flags to disable VP8 or H264 encoding
+
+Adds flags to filter WebRTC encoder codecs by failing encoder creation
+(rather than removing from capabilities, which breaks setCodecPreferences):
+
+Complete disable (HW + SW) - fails encoder creation, forces fallback:
+  --webrtc-disable-vp8      Disable VP8 entirely (forces H264)
+  --webrtc-disable-h264     Disable H264 entirely (forces VP8)
+
+HW-only disable (keeps SW fallback):
+  --webrtc-disable-vp8-hw   Disable VP8 HW only
+  --webrtc-disable-h264-hw  Disable H264 HW only
+
+Useful for testing/debugging codec-specific issues.
+Ported from Chromium 117 to 129.0.6668.100.
+
+Apply AFTER chromium-v4l2-hw-encode-129.patch
+
+Upstream-Status: Inappropriate [i.MX specific]
+
+---
+
+--- a/content/browser/renderer_host/render_process_host_impl.cc	2026-02-08 07:42:20.164120753 -0500
++++ b/content/browser/renderer_host/render_process_host_impl.cc	2026-02-08 07:42:30.004138552 -0500
+@@ -3410,6 +3410,11 @@
+       switches::kEnablePepperTesting,
+ #endif
+       switches::kEnableWebRtcSrtpEncryptedHeaders,
++      // Custom WebRTC codec filter switches
++      "webrtc-disable-vp8",
++      "webrtc-disable-h264",
++      "webrtc-disable-vp8-hw",
++      "webrtc-disable-h264-hw",
+       switches::kEnforceWebRtcIPPermissionCheck,
+       switches::kWebRtcMaxCaptureFramerate,
+       switches::kEnableLowEndDeviceMode,
+--- a/third_party/blink/renderer/platform/peerconnection/rtc_video_encoder_factory.cc	2026-02-08 07:42:20.168120756 -0500
++++ b/third_party/blink/renderer/platform/peerconnection/rtc_video_encoder_factory.cc	2026-02-08 07:42:56.844294929 -0500
+@@ -6,6 +6,7 @@
+ 
+ #include <memory>
+ 
++#include "base/command_line.h"
+ #include "base/containers/contains.h"
+ #include "base/logging.h"
+ #include "base/strings/string_util.h"
+@@ -217,10 +218,28 @@
+   // |profiles| are either the info at GpuInfo instance or the info got by
+   // querying GPU process.
+   supported_formats.unknown = false;
++
++  // Check for codec disable flags (HW only)
++  const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++  const bool disable_vp8 = cmd->HasSwitch("webrtc-disable-vp8-hw");
++  const bool disable_h264 = cmd->HasSwitch("webrtc-disable-h264-hw");
++
+   for (const auto& profile : *profiles) {
+     if (base::Contains(disabled_profiles, profile.profile))
+       continue;
+ 
++    // Filter out VP8 if --webrtc-disable-vp8-hw is set
++    if (disable_vp8 && profile.profile >= media::VP8PROFILE_MIN &&
++        profile.profile <= media::VP8PROFILE_MAX) {
++      continue;
++    }
++
++    // Filter out H264 if --webrtc-disable-h264-hw is set
++    if (disable_h264 && profile.profile >= media::H264PROFILE_MIN &&
++        profile.profile <= media::H264PROFILE_MAX) {
++      continue;
++    }
++
+     std::optional<webrtc::SdpVideoFormat> format = VEAToWebRTCFormat(profile);
+     if (format) {
+       if (format->IsCodecInList(supported_formats.sdp_formats)) {
+--- a/third_party/blink/renderer/platform/peerconnection/video_codec_factory.cc	2026-02-08 07:42:20.168120756 -0500
++++ b/third_party/blink/renderer/platform/peerconnection/video_codec_factory.cc	2026-02-08 07:43:19.216536891 -0500
+@@ -4,6 +4,7 @@
+ 
+ #include "third_party/blink/renderer/platform/peerconnection/video_codec_factory.h"
+ 
++#include "base/command_line.h"
+ #include "base/feature_list.h"
+ #include "base/memory/ptr_util.h"
+ #include "base/task/sequenced_task_runner.h"
+@@ -85,6 +86,18 @@
+   std::unique_ptr<webrtc::VideoEncoder> Create(
+       const webrtc::Environment& env,
+       const webrtc::SdpVideoFormat& format) override {
++    // Check for codec disable flags - fail encoder creation to force fallback
++    // (we keep codecs in GetSupportedFormats so setCodecPreferences() works)
++    const base::CommandLine* cmd = base::CommandLine::ForCurrentProcess();
++    if (cmd->HasSwitch("webrtc-disable-vp8") && format.name == "VP8") {
++      LOG(ERROR) << "VP8 encoder creation blocked by --webrtc-disable-vp8";
++      return nullptr;
++    }
++    if (cmd->HasSwitch("webrtc-disable-h264") && format.name == "H264") {
++      LOG(ERROR) << "H264 encoder creation blocked by --webrtc-disable-h264";
++      return nullptr;
++    }
++
+     if (!WebRTCFormatToCodecProfile(format)) {
+       LOG(ERROR) << "Unsupported SDP format: " << format.name;
+       return nullptr;

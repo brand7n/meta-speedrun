@@ -1,0 +1,37 @@
+From: V4L2 WebRTC encode enablement
+Subject: Enable kVaapiVideoEncodeLinux by default for V4L2 HW encode on Linux
+
+Chromium gates hardware video encoding on Linux behind the
+kVaapiVideoEncodeLinux feature flag (despite the name, it controls
+V4L2 encoders too, not just VAAPI). This flag is checked in
+render_thread_impl.cc to determine HW encoder availability.
+
+Enable it by default so V4L2 hardware encoders (e.g. Hantro H1 on
+NXP i.MX8MM) are available to WebRTC without requiring a runtime flag.
+
+Note: The previous version of this patch also forced
+IsGpuMemoryBufferNV12Supported() to return true and changed buffer
+usage in the video frame pools. That was WRONG — it caused 30
+failed GBM NV12 allocation attempts per second (Vivante GBM cannot
+allocate NV12), leading to OOM within ~60 seconds. The NV12 check
+does NOT gate encoder selection in Chromium 129; it only gates video
+capture GPU memory buffer usage. The encoder works fine receiving
+frames through SharedMemory (I420 -> MMAP copy path).
+
+Tested on: NXP i.MX8MM EVK with Chromium 129.0.6668.100
+
+Upstream-Status: Inappropriate [i.MX specific]
+
+---
+
+--- a/media/base/media_switches.cc
++++ b/media/base/media_switches.cc
+@@ -758,7 +758,7 @@
+
+ BASE_FEATURE(kVaapiVideoEncodeLinux,
+              "VaapiVideoEncoder",
+-             base::FEATURE_DISABLED_BY_DEFAULT);
++             base::FEATURE_ENABLED_BY_DEFAULT);
+
+ // Ignore the non-intel driver blacklist for VaapiVideoDecoder implementations.
+ // Intended for manual usage only in order to gague the status of newer driver

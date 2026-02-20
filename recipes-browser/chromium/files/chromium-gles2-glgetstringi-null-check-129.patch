@@ -1,0 +1,59 @@
+From: Fix GLES 2.0 crash in glGetStringi
+Subject: Replace NULL glGetStringi with safe stub on GLES 2.0 drivers
+
+On GLES 2.0 drivers (e.g. Vivante GC NanoUltra on i.MX8MM),
+glGetStringi is not available (it requires GLES 3.0+). Chromium's
+GL dispatch table gets a NULL function pointer from eglGetProcAddress.
+Various code paths call it without checking, causing a SIGSEGV.
+
+Previous approaches (guarding individual call sites in GLApiBase and
+RealGLApi) failed because Chromium is built with thin LTO, which
+inlines functions across compilation units. Stale inlined copies in
+other object files bypass the guards.
+
+Fix by replacing the NULL function pointer with a safe stub at
+initialization time in DriverGL::InitializeStaticBindings(). The stub
+simply returns nullptr. Since the function pointer is never NULL,
+ALL code paths are safe regardless of LTO inlining.
+
+Tested on: NXP i.MX8MM EVK with Chromium 129.0.6668.100
+(Vivante GC NanoUltra, GLES 2.0 only)
+
+Upstream-Status: Submitted [https://crbug.com]
+
+---
+
+--- a/ui/gl/gl_bindings_autogen_gl.cc
++++ b/ui/gl/gl_bindings_autogen_gl.cc
+@@ -25,6 +25,14 @@
+
+ namespace gl {
+
++// Safe stub for glGetStringi on GLES 2.0 drivers where the real function
++// is not available (requires GLES 3.0+). Prevents NULL pointer crashes
++// throughout all code paths, including LTO-inlined callers.
++static const GLubyte* GL_BINDING_CALL glGetStringiStub(GLenum name,
++                                                       GLuint index) {
++  return nullptr;
++}
++
+ void DriverGL::InitializeStaticBindings() {
+   // Ensure struct has been zero-initialized.
+   char* this_bytes = reinterpret_cast<char*>(this);
+@@ -336,6 +344,15 @@
+       GetGLProcAddress("glVertexAttribPointer"));
+   fn.glViewportFn =
+       reinterpret_cast<glViewportProc>(GetGLProcAddress("glViewport"));
++
++  // Replace NULL glGetStringi with a safe stub on GLES 2.0 drivers.
++  // The stub returns nullptr, which is safe for all callers.
++  // This MUST be done here (at init time) rather than at call sites,
++  // because LTO may inline callers across compilation units.
++  if (!fn.glGetStringiFn) {
++    fn.glGetStringiFn =
++        reinterpret_cast<glGetStringiProc>(glGetStringiStub);
++  }
+ }
+
+ void DriverGL::InitializeDynamicBindings(const GLVersionInfo* ver,
+
