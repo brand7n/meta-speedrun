@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Freedoom: Phase 2
+Comment=Free Doom-compatible FPS (Doom II campaign)
+Exec=env SDL_OPENGL_ES_DRIVER=1 SDL_VIDEO_EGL_DRIVER=libEGL.so.1 SDL_VIDEODRIVER=wayland /usr/bin/gzdoom +vid_preferbackend 3 -iwad freedoom2.wad
+Icon=gzdoom
+Type=Application
+Categories=Game;ActionGame;
