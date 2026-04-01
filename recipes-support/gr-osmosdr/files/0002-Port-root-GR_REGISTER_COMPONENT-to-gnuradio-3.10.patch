@@ -1,0 +1,13 @@
+Upstream-Status: Pending [gr-osmosdr not yet ported to gnuradio 3.10 cmake API]
+
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -184,7 +184,7 @@
+ find_package(PythonLibs 3)
+ find_package(pybind11)
+
+-GR_REGISTER_COMPONENT("Python support" ENABLE_PYTHON
++GR_REGISTER_COMPONENT(NAME "Python support" VAR ENABLE_PYTHON REQUIRED_TPLS
+     PYTHONLIBS_FOUND
+     pybind11_FOUND
+ )
