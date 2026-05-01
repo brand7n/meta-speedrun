@@ -53,13 +53,22 @@ repo sync
 
 ## Step 2: Clone Additional Layers
 
+The build references four layers that aren't part of the NXP BSP. All are required —
+the build will fail to parse `bblayers.conf` if any are missing.
+
 ```bash
 cd ~/yocto-imx/sources
 
 # meta-quilter (Project Speedrun customizations)
-git clone <meta-quilter-url> meta-quilter
+git clone https://github.com/brand7n/meta-speedrun.git meta-quilter
 
-# meta-doom (GZDoom game engine - optional)
+# meta-qt5 (Qt5 framework - required by gnuradio-companion GUI)
+git clone -b walnascar https://github.com/meta-qt5/meta-qt5.git meta-qt5
+
+# meta-sdr (GNU Radio, gr-osmosdr, libhackrf, rtl-sdr)
+git clone -b walnascar https://github.com/balister/meta-sdr.git meta-sdr
+
+# meta-doom (GZDoom game engine)
 git clone https://github.com/JPEWdev/meta-doom.git meta-doom
 ```
 
@@ -144,7 +153,7 @@ IMAGE_INSTALL:append = " gzdoom freedoom-1 freedoom-2"
 IMAGE_INSTALL:append = " glmark2 kmscube mesa-demos weston weston-examples"
 
 # Custom packages from meta-quilter
-IMAGE_INSTALL:append = " locale-config pulseaudio-default-wm8524 es2-info quakesdlgles1"
+IMAGE_INSTALL:append = " locale-config pulseaudio-default-wm8524 es2-info"
 
 # GNOME requires these distro features
 # NXP removes pulseaudio, we need to add it back
@@ -208,8 +217,6 @@ These bbappends fix issues in the Walnascar BSP when building with GNOME:
 | `es2-info` | GLES2 capability query tool |
 | `locale-config` | Set system locale to en_US.UTF-8 |
 | `pulseaudio-default-wm8524` | PulseAudio config for i.MX8MM EVK audio codec |
-| `quakesdlgles1` | Quake port using GLES1 |
-| `chromium-kiosk` | Chromium kiosk mode session (optional) |
 | `psplash` (bbappend) | Custom boot splash with Quilter logo |
 
 ### U-Boot Customizations
