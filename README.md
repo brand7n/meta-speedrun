@@ -56,10 +56,10 @@ recipes-fsl/
 └── images/              # Image recipe extensions
 
 recipes-games/
-└── quakesdlgles1/       # Quake GLES1 port
+└── zdoom/               # GZDoom + Freedoom 1/2 launchers
 
 recipes-graphics/
-├── chromium-kiosk/      # Chromium kiosk mode
+├── alacritty/           # GPU-accelerated terminal (Wayland)
 ├── es2-info/            # OpenGL ES info utility
 ├── gles-env/            # GLES environment setup
 └── gsk-cairo-config/    # GSK Cairo renderer config
