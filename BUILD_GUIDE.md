@@ -7,7 +7,11 @@ Reproducing the GNOME desktop build for i.MX8M Mini from scratch.
 ### Host System
 
 - Debian Bookworm (12) or equivalent
-- Minimum 200GB free disk space
+- Minimum 200GB free disk space on a **case-sensitive filesystem** (ext4, xfs, btrfs).
+  Yocto refuses to build on case-insensitive filesystems — this rules out macOS
+  HFS+/APFS shares, Windows/WSL `/mnt/c`, and many network mounts. If your only
+  large disk is case-insensitive, use it for `downloads/` and `sstate-cache/`
+  but keep `TMPDIR` (default: `<build>/tmp/`) on a case-sensitive volume.
 - Minimum 16GB RAM (32GB recommended)
 - If 16GB RAM, add 4-6GB swap
 
@@ -89,8 +93,12 @@ sed -i 's/^PACKAGECONFIG:remove:imxgpu = "x11"/# &/' \
 
 ## Step 3: Initialize Build Environment
 
+`ACCEPT_FSL_EULA=1` must be exported **before** sourcing the setup script —
+otherwise it stops to prompt for EULA acceptance interactively.
+
 ```bash
 cd ~/yocto-imx
+export ACCEPT_FSL_EULA=1
 MACHINE=imx8mmevk DISTRO=fsl-imx-xwayland source imx-setup-release.sh -b build-gnome
 ```
 
@@ -100,14 +108,19 @@ This creates `build-gnome/conf/local.conf` and `build-gnome/conf/bblayers.conf`.
 `imx-setup-release.sh` - it echoes a shell variable that only exists as a BitBake
 variable in `bblayers.conf`. It's harmless and can be ignored.
 
-## Step 3.5: Fix meta-doom Layer Compatibility (if needed)
+## Step 3.5: Fix meta-doom Layer Compatibility
 
-meta-doom may not list `walnascar` in its LAYERSERIES_COMPAT. If you get a
-compatibility error when adding the layer, update it:
+meta-doom does not list `walnascar` in its LAYERSERIES_COMPAT, so bitbake
+rejects the layer at parse time. Add `walnascar` to the compatible series
+list (must be **inside** the quotes):
 
 ```bash
-sed -i 's/LAYERSERIES_COMPAT_doom.*/& walnascar/' ../sources/meta-doom/conf/layer.conf
+sed -i 's/^\(LAYERSERIES_COMPAT_doom = "[^"]*\)"/\1 walnascar"/' \
+    sources/meta-doom/conf/layer.conf
 ```
+
+Verify the result reads `LAYERSERIES_COMPAT_doom = "mickledore nanbield walnascar"`
+(or similar with `walnascar` *inside* the quotes).
 
 ## Step 4: Copy Configuration Files
 
