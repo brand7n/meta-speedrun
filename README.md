@@ -1,4 +1,4 @@
-# meta-speedrun (a.k.a. meta-quilter)
+# meta-speedrun
 
 Yocto layer for Project Speedrun: a GNOME desktop embedded Linux image for the
 NXP i.MX8M Mini EVK (Walnascar / 6.12 kernel). Provides Vivante GLES2
