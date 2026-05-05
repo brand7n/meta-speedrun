@@ -139,47 +139,7 @@ bitbake-layers show-layers
 
 meta-quilter should appear with priority 99.
 
-## Step 5 (skip): Configure local.conf
-
-**This step is not needed if you copied the config files in Step 4.** The reference
-configs already include everything below. This section is kept for reference only.
-
-Add the following to `build-gnome/conf/local.conf`:
-
-```bitbake
-# Accept NXP EULA
-ACCEPT_FSL_EULA = "1"
-
-# GNOME desktop
-IMAGE_INSTALL:append = " packagegroup-gnome-desktop gnome-terminal nautilus gedit evince eog gdm networkmanager htop"
-
-# Vivante GLES workarounds (from meta-quilter)
-IMAGE_INSTALL:append = " gsk-cairo-config gles-env"
-
-# Chromium (optional - comment out for initial mutter testing)
-#IMAGE_INSTALL:append = " chromium-ozone-wayland"
-
-# Games (optional)
-IMAGE_INSTALL:append = " gzdoom freedoom-1 freedoom-2"
-
-# Dev tools
-IMAGE_INSTALL:append = " glmark2 kmscube mesa-demos weston weston-examples"
-
-# Custom packages from meta-quilter
-IMAGE_INSTALL:append = " locale-config pulseaudio-default-wm8524 es2-info"
-
-# GNOME requires these distro features
-# NXP removes pulseaudio, we need to add it back
-DISTRO_FEATURES:append = " polkit systemd gobject-introspection-data pulseaudio"
-DISTRO_FEATURES_BACKFILL_CONSIDERED:remove = "pulseaudio"
-VIRTUAL-RUNTIME_init_manager = "systemd"
-VIRTUAL-RUNTIME_initscripts = "systemd-compat-units"
-
-# Exclude conflicting packages
-PACKAGE_EXCLUDE = "packagegroup-fsl-tools-audio nxp-afe-voiceseeker nxp-afe-voiceaec"
-```
-
-## Step 6: Build
+## Step 5: Build
 
 ```bash
 bitbake imx-image-multimedia
@@ -199,53 +159,83 @@ Images are written to:
 build-gnome/tmp/deploy/images/imx8mmevk/
 ```
 
-Flash to SD card:
+Flash to SD card (note the `.rootfs.` in the filename):
 
 ```bash
-zstdcat imx-image-multimedia-imx8mmevk.wic.zst | dd of=/dev/sdX bs=1M conv=fsync
+zstdcat imx-image-multimedia-imx8mmevk.rootfs.wic.zst | dd of=/dev/sdX bs=1M conv=fsync
+```
+
+Or with bmaptool for faster flashing:
+
+```bash
+bmaptool copy imx-image-multimedia-imx8mmevk.rootfs.wic.zst /dev/sdX
 ```
 
 ## What meta-quilter Provides
 
 ### Bug Fixes for Walnascar + GNOME
 
-These bbappends fix issues in the Walnascar BSP when building with GNOME:
-
 | Recipe | Fix |
 |--------|-----|
 | `systemd_%.bbappend` | Remove incompatible binfmt patch for systemd 257.6 |
 | `unicode-ucd_%.bbappend` | Updated license checksum (upstream changed) |
-| `libcanberra_%.bbappend` | Disable GTK modules requiring X11 headers |
-| `xserver-xorg_%.bbappend` | Remove obsolete GL_BGRA_EXT patch (now upstream), add xshmfence dep for DRI3 |
-| `gtk+3_%.bbappend` | Re-enable X11 backend (NXP incorrectly removes it, breaking GNOME) |
-| `webkitgtk_%.bbappend` | Limit parallel compile to -j 4 (OOM prevention on 16GB systems) |
-| `imx-image-multimedia.bbappend` | Remove NXP packages with broken dependencies |
+| `libcanberra_%.bbappend` | Disable GTK2 module (GTK3 kept for gnome-settings-daemon) |
+| `xserver-xorg_%.bbappend` | Remove obsolete GL_BGRA_EXT patch, add xshmfence dep for DRI3 |
+| `gtk+3_%.bbappend` | Note: NXP `:remove` of X11 must be patched directly (Step 2.5) |
+| `webkitgtk_%.bbappend` | Limit parallel compile to -j 4 (OOM prevention on 16GB) |
+| `libdisplay-info_git.bbappend` | Bump to 0.2.0 (mutter 48 requires it) |
+| `mutter_%.bbappend` | Stub `eglmesaext.h` for Vivante (Mesa-only header) |
+| `gnome-session_%.bbappend` | Suppress Vivante EGL pointer-type errors |
+| `gnome-tweaks_%.bbappend` | Skip buildpaths QA (Python bytecode) |
+| `gdm_%.bbappend` | Plymouth integration for seamless splash → login |
+| `imx-image-multimedia.bbappend` | Drop NXP audio packages with broken deps |
+| `packagegroup-fsl-gstreamer1.0.bbappend` | Drop unreachable rtsp-server fetch |
 
-### Custom Packages
-
-| Recipe | Purpose |
-|--------|---------|
-| `gles-env` | Set GLES environment variables for Vivante GPU |
-| `gsk-cairo-config` | Force GSK Cairo renderer (Vivante doesn't support full GL) |
-| `es2-info` | GLES2 capability query tool |
-| `locale-config` | Set system locale to en_US.UTF-8 |
-| `pulseaudio-default-wm8524` | PulseAudio config for i.MX8MM EVK audio codec |
-| `psplash` (bbappend) | Custom boot splash with Quilter logo |
-
-### U-Boot Customizations
+### Vivante GLES2 / Embedded Customizations
 
 | Recipe | Purpose |
 |--------|---------|
-| `u-boot-imx_%.bbappend` | Quilter splash logo, "Project Speedrun" model string |
+| `gsk-cairo-config` | Force GSK Cairo renderer + CLUTTER_DRIVER=gles2 |
+| `gles-env` | GLES2 / EGL environment variables in `/etc/profile.d/` |
+| `es2-info` | GLES2 / EGL capability query tool |
+| `mpv_%.bbappend` | Disable gbm/Vulkan, force OpenGL API for Vivante EGL |
+| `gnuradio_git.bbappend` | Disable RFNoC Fosphor (uses desktop GL) |
 
-## Layer Dependencies
+### Branding / Boot
 
-meta-quilter requires:
-- `core` (poky/meta)
-- `freescale-layer` (meta-freescale)
-- `fsl-bsp-release` (meta-imx/meta-imx-bsp)
+| Recipe | Purpose |
+|--------|---------|
+| `u-boot-imx_%.bbappend` | Quilter splash logo, "Project Speedrun" model |
+| `psplash_git.bbappend` | Quilter logo, white background, systemd services |
+| `plymouth_%.bbappend` | DRM/KMS spinner theme + watermark |
+| `linux-imx_%.bbappend` | Quiet boot cmdline, rfkill, kernel logo off |
 
-Compatible with: Walnascar, Scarthgap
+### Browser / SDR
+
+| Recipe | Purpose |
+|--------|---------|
+| `chromium-ozone-wayland_%.bbappend` | V4L2 HW encode (Hantro H1), GLES2 + Dawn fixes, AV1 disabled |
+| `gr-osmosdr_git.bbappend` | gnuradio 3.10 API patches, HackRF + RTL-SDR enabled |
+| `libhackrf_git.bbappend` | Fix repo branch rename (master → main) |
+
+### System Services / User Setup
+
+| Recipe | Purpose |
+|--------|---------|
+| `resize-rootfs` | First-boot rootfs partition expansion |
+| `cpu-performance-mode` | CPU governor → performance on boot |
+| `disable-suspend` | Mask suspend / hibernate (i.MX8MM wake issues) |
+| `locale-config` | en_US.UTF-8 |
+| `pulseaudio-default-wm8524` | WM8524 headphone codec as default sink |
+| `pulseaudio_%.bbappend` | Default sink config, hide unused devices |
+| `colord.bbappend` | Relaxed sandbox for demo board |
+
+### Tools
+
+| Recipe | Purpose |
+|--------|---------|
+| `alacritty` | GPU-accelerated terminal (Wayland, Solarized Dark) |
+| `fastfetch` | System info (neofetch alternative) |
 
 ## Troubleshooting
 
