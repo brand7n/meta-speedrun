@@ -145,11 +145,38 @@ meta-quilter should appear with priority 99.
 bitbake imx-image-multimedia
 ```
 
-The build will take several hours depending on hardware. On an 8-core ARM64 system with 16GB RAM, expect 6-10 hours.
+The build will take several hours depending on hardware. On an 8-core ARM64
+system with 16GB RAM, expect 6-10 hours from cold cache.
+
+The two heaviest recipes by far are **chromium-ozone-wayland** (3-6 h, ~22GB
+RAM+swap during the final ThinLTO link) and **webkitgtk** (1-2 h). Plan disk
+and memory accordingly.
+
+If you want to verify the chromium patches in this layer apply cleanly to a
+clean source tree (rather than relying on cached state), force a fresh
+chromium rebuild before the image build:
+
+```bash
+bitbake -c cleansstate chromium-ozone-wayland
+bitbake imx-image-multimedia
+```
 
 ### Memory Considerations
 
-WebKitGTK is the most memory-intensive package. meta-quilter limits it to `-j 4` parallel compile jobs to avoid OOM on 16GB systems. If you have 32GB+ RAM, you can remove `recipes-sato/webkit/webkitgtk_%.bbappend` from meta-quilter.
+WebKitGTK is memory-intensive but bounded: meta-quilter limits it to `-j 4`
+parallel compile jobs to avoid OOM on 16GB systems. If you have 32GB+ RAM,
+you can remove `recipes-sato/webkit/webkitgtk_%.bbappend` from meta-quilter.
+
+Chromium's final ThinLTO link is the single most demanding step in the whole
+build — it needs ~22GB RAM+swap. On a 16GB host, add 8GB+ swap before
+starting the image build:
+
+```bash
+fallocate -l 8G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+```
 
 ## Build Output
 

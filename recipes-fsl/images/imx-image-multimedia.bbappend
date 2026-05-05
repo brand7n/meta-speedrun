@@ -26,7 +26,7 @@ IMAGE_INSTALL:append = " gzdoom freedoom-1 freedoom-2"
 IMAGE_INSTALL:append = " glmark2 kmscube mesa-demos weston weston-examples git curl lsof alacritty"
 
 # Browser + media player
-IMAGE_INSTALL:append = " mpv"
+IMAGE_INSTALL:append = " chromium-ozone-wayland mpv"
 
 # SDR / GNU Radio
 IMAGE_INSTALL:append = " gnuradio libhackrf gr-osmosdr rtl-sdr"
