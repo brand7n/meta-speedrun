@@ -46,7 +46,7 @@ IMAGE_INSTALL:append = " \
 
 # Create speedrun user account
 inherit extrausers
-EXTRA_USERS_PARAMS = "useradd -m -s /bin/bash -G video,audio,input,render -p '\$6\$4jmDOfNT27czQp9A\$BO2aTA/xoFDrWe0BRv1f28uXP69z93tKQhGfBBPbjQTASCRUBjCQjDI6ydramWYHTkkv7iBqidDd8ElKJP2dl.' speedrun;"
+EXTRA_USERS_PARAMS = "useradd -u 1000 -m -s /bin/bash -G video,audio,input,render -p '\$6\$4jmDOfNT27czQp9A\$BO2aTA/xoFDrWe0BRv1f28uXP69z93tKQhGfBBPbjQTASCRUBjCQjDI6ydramWYHTkkv7iBqidDd8ElKJP2dl.' speedrun;"
 
 # Use GDM instead of Weston as the default display manager
 SYSTEMD_DEFAULT_TARGET = "graphical.target"
